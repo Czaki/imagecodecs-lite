@@ -65,7 +65,7 @@ try:
 except ImportError:
     czifile = None
 
-if 'imagecodecs_lite' in os.path.abspath(__file__):
+if 'imagecodecs_lite' in os.listdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
     try:
         import imagecodecs_lite as imagecodecs
         from imagecodecs_lite import _imagecodecs_lite  # noqa
