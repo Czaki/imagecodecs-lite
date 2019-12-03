@@ -15,16 +15,16 @@
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
 #
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
 #
-# * Neither the name of the copyright holder nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -47,8 +47,8 @@ and Bitorder reversal.
 
 Imagecodecs-lite is a subset of the `imagecodecs
 <https://pypi.org/project/imagecodecs/>`_ library, which provides additional
-codecs for Zlib DEFLATE, ZStandard, Blosc, LZMA, BZ2, LZ4, LZF, ZFP, PNG, WebP,
-JPEG 8-bit, JPEG 12-bit, JPEG SOF3, JPEG LS, JPEG 2000, and JPEG XR.
+codecs for Zlib DEFLATE, ZStandard, Blosc, LZMA, BZ2, LZ4, LZF, AEC, ZFP,
+PNG, WebP, JPEG 8-bit, JPEG 12-bit, JPEG SOF3, JPEG LS, JPEG 2000, and JPEG XR.
 
 Unlike imagecodecs, imagecodecs-lite does not depend on external third-party
 C libraries and is therefore simple to build from source code.
@@ -59,18 +59,18 @@ C libraries and is therefore simple to build from source code.
 :Organization:
   Laboratory for Fluorescence Dynamics. University of California, Irvine
 
-:License: 3-clause BSD
+:License: BSD 3-Clause
 
-:Version: 2019.4.20
+:Version: 2019.12.2
 
 Requirements
 ------------
 This release has been tested with the following requirements and dependencies
 (other versions may work):
 
-* `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.3, 64-bit <https://www.python.org>`_
-* `Numpy 1.15.4 <https://www.numpy.org>`_
-* `Cython 0.29.7 <https://cython.org>`_
+* `CPython 2.7.15, 3.5.4, 3.6.8, 3.7.5, 3.8.0 64-bit <https://www.python.org>`_
+* `Numpy 1.16.5 <https://www.numpy.org>`_
+* `Cython 0.29.14 <https://cython.org>`_
 
 Notes
 -----
@@ -78,10 +78,14 @@ The API is not stable yet and might change between revisions.
 
 Works on little-endian platforms only.
 
-Python 2.7 and 32-bit are deprecated.
+Python 2.7, 3.5, and 32-bit are deprecated.
+
+Build instructions for manylinux and macOS courtesy of Grzegorz Bokota.
 
 Revisions
 ---------
+2019.12.2
+    Release manylinux and macOS wheels.
 2019.4.20
     Fix setup requirements.
 2019.2.22
@@ -89,7 +93,7 @@ Revisions
 
 """
 
-__version__ = '2019.4.20'
+__version__ = '2019.12.2'
 
 
 import io
@@ -115,6 +119,7 @@ numpy.import_array()
 ###############################################################################
 
 cdef extern from 'imagecodecs.h':
+
     char* ICD_VERSION
     char ICD_BOC
     int ICD_OK
@@ -241,14 +246,16 @@ def numpy_encode(data, level=None, out=None, **kwargs):
 # Delta #######################################################################
 
 cdef extern from 'imagecodecs.h':
-    ssize_t icd_delta(void *src,
-                      const ssize_t srcsize,
-                      const ssize_t srcstride,
-                      void *dst,
-                      const ssize_t dstsize,
-                      const ssize_t dststride,
-                      const ssize_t itemsize,
-                      const int decode) nogil
+
+    ssize_t icd_delta(
+        void *src,
+        const ssize_t srcsize,
+        const ssize_t srcstride,
+        void *dst,
+        const ssize_t dstsize,
+        const ssize_t dststride,
+        const ssize_t itemsize,
+        const int decode) nogil
 
 
 cdef _delta(data, int axis, out, int decode):
@@ -359,14 +366,16 @@ def delta_encode(data, axis=-1, out=None):
 # XOR Delta ###################################################################
 
 cdef extern from 'imagecodecs.h':
-    ssize_t icd_xor(void *src,
-                    const ssize_t srcsize,
-                    const ssize_t srcstride,
-                    void *dst,
-                    const ssize_t dstsize,
-                    const ssize_t dststride,
-                    const ssize_t itemsize,
-                    const int decode) nogil
+
+    ssize_t icd_xor(
+        void *src,
+        const ssize_t srcsize,
+        const ssize_t srcstride,
+        void *dst,
+        const ssize_t dstsize,
+        const ssize_t dststride,
+        const ssize_t itemsize,
+        const int decode) nogil
 
 
 cdef _xor(data, int axis, out, int decode):
@@ -477,16 +486,18 @@ def xor_encode(data, axis=-1, out=None):
 # TIFF Technical Note 3. April 8, 2005.
 
 cdef extern from 'imagecodecs.h':
-    ssize_t icd_floatpred(void *src,
-                          const ssize_t srcsize,
-                          const ssize_t srcstride,
-                          void *dst,
-                          const ssize_t dstsize,
-                          const ssize_t dststride,
-                          const ssize_t itemsize,
-                          const ssize_t samples,
-                          const char byteorder,
-                          const int decode) nogil
+
+    ssize_t icd_floatpred(
+        void *src,
+        const ssize_t srcsize,
+        const ssize_t srcstride,
+        void *dst,
+        const ssize_t dstsize,
+        const ssize_t dststride,
+        const ssize_t itemsize,
+        const ssize_t samples,
+        const char byteorder,
+        const int decode) nogil
 
 
 cdef _floatpred(data, int axis, out, int decode):
@@ -587,13 +598,15 @@ def floatpred_decode(data, axis=-1, out=None):
 # BitOrder Reversal ###########################################################
 
 cdef extern from 'imagecodecs.h':
-    ssize_t icd_bitorder(uint8_t *src,
-                         const ssize_t srcsize,
-                         const ssize_t srcstride,
-                         const ssize_t itemsize,
-                         uint8_t *dst,
-                         const ssize_t dstsize,
-                         const ssize_t dststride) nogil
+
+    ssize_t icd_bitorder(
+        uint8_t *src,
+        const ssize_t srcsize,
+        const ssize_t srcstride,
+        const ssize_t itemsize,
+        uint8_t *dst,
+        const ssize_t dstsize,
+        const ssize_t dststride) nogil
 
 
 def bitorder_decode(data, out=None):
@@ -693,18 +706,22 @@ bitorder_encode = bitorder_decode
 # PackBits ####################################################################
 
 cdef extern from 'imagecodecs.h':
-    ssize_t icd_packbits_size(const uint8_t *src,
-                              const ssize_t srcsize) nogil
 
-    ssize_t icd_packbits_decode(const uint8_t *src,
-                                const ssize_t srcsize,
-                                uint8_t *dst,
-                                const ssize_t dstsize) nogil
+    ssize_t icd_packbits_size(
+        const uint8_t *src,
+        const ssize_t srcsize) nogil
 
-    ssize_t icd_packbits_encode(const uint8_t *src,
-                                const ssize_t srcsize,
-                                uint8_t *dst,
-                                const ssize_t dstsize) nogil
+    ssize_t icd_packbits_decode(
+        const uint8_t *src,
+        const ssize_t srcsize,
+        uint8_t *dst,
+        const ssize_t dstsize) nogil
+
+    ssize_t icd_packbits_encode(
+        const uint8_t *src,
+        const ssize_t srcsize,
+        uint8_t *dst,
+        const ssize_t dstsize) nogil
 
 
 def packbits_encode(data, level=None, out=None):
@@ -827,17 +844,20 @@ def packbits_decode(data, out=None):
 # Packed Integers #############################################################
 
 cdef extern from 'imagecodecs.h':
+
     int SSIZE_MAX
 
-    ssize_t icd_packints_decode(const uint8_t *src,
-                                const ssize_t srcsize,
-                                uint8_t *dst,
-                                const ssize_t dstsize,
-                                const int numbits) nogil
+    ssize_t icd_packints_decode(
+        const uint8_t *src,
+        const ssize_t srcsize,
+        uint8_t *dst,
+        const ssize_t dstsize,
+        const int numbits) nogil
 
-    void icd_swapbytes(void *src,
-                       const ssize_t srcsize,
-                       const ssize_t itemsize) nogil
+    void icd_swapbytes(
+        void *src,
+        const ssize_t srcsize,
+        const ssize_t itemsize) nogil
 
 
 def packints_encode(*args, **kwargs):
@@ -925,21 +945,25 @@ def packints_decode(data, dtype, int numbits, ssize_t runlen=0, out=None):
 # LZW #########################################################################
 
 cdef extern from 'imagecodecs.h':
+
     ctypedef struct icd_lzw_handle_t:
         pass
 
     icd_lzw_handle_t *icd_lzw_new(ssize_t buffersize) nogil
+
     void icd_lzw_del(icd_lzw_handle_t *handle) nogil
 
-    ssize_t icd_lzw_decode_size(icd_lzw_handle_t *handle,
-                                const uint8_t *src,
-                                const ssize_t srcsize) nogil
+    ssize_t icd_lzw_decode_size(
+        icd_lzw_handle_t *handle,
+        const uint8_t *src,
+        const ssize_t srcsize) nogil
 
-    ssize_t icd_lzw_decode(icd_lzw_handle_t *handle,
-                           const uint8_t *src,
-                           const ssize_t srcsize,
-                           uint8_t *dst,
-                           const ssize_t dstsize) nogil
+    ssize_t icd_lzw_decode(
+        icd_lzw_handle_t *handle,
+        const uint8_t *src,
+        const ssize_t srcsize,
+        uint8_t *dst,
+        const ssize_t dstsize) nogil
 
 
 def lzw_decode(data, buffersize=0, out=None):
@@ -975,7 +999,8 @@ def lzw_decode(data, buffersize=0, out=None):
         dstsize = dst.size
 
         with nogil:
-            ret = icd_lzw_decode(handle, &src[0], srcsize, &dst[0], dstsize)
+            ret = icd_lzw_decode(handle, &src[0], srcsize,
+                                 <uint8_t*>&dst[0], dstsize)
         if ret < 0:
             raise IcdError('icd_lzw_decode', ret)
     finally:
@@ -991,3 +1016,11 @@ def lzw_encode(*args, **kwargs):
     """Not implemented."""
     # TODO: LZW encoding
     raise NotImplementedError('lzw_encode')
+
+
+###############################################################################
+
+# TODO: LZW encode
+# TODO: Integer resize; magic kernel
+# TODO: Dtype conversion/quantizations
+# TODO: Scale Offset

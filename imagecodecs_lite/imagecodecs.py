@@ -9,16 +9,16 @@
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
-# * Redistributions of source code must retain the above copyright notice,
-#   this list of conditions and the following disclaimer.
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
 #
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
 #
-# * Neither the name of the copyright holder nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
 #
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 # AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -36,7 +36,7 @@
 
 This module implements limited functionality of the imagecodecs Cython
 extension modules using pure Python and 3rd party packages.
-It is intended for testing and reference.
+The module is intended for testing and reference, not production code.
 
 :Author:
   `Christoph Gohlke <https://www.lfd.uci.edu/~gohlke/>`_
@@ -44,12 +44,21 @@ It is intended for testing and reference.
 :Organization:
   Laboratory for Fluorescence Dynamics. University of California, Irvine
 
-:License: 3-clause BSD
+:License: BSD 3-Clause
 
-:Version: 2019.4.20
+:Version: 2019.12.2
 
 Revisions
 ---------
+2019.11.28
+    Add dummy AEC codec.
+2019.11.18
+    Add Bitshuffle codec.
+    Fix doctests.
+2019.11.5
+    Update dependencies.
+2019.5.22
+    Add ZFP codec via zfpy package.
 2019.4.20
     Include with imagecodecs-lite.
 2019.1.14
@@ -86,7 +95,7 @@ Revisions
 
 from __future__ import division, print_function
 
-__version__ = '2019.4.20.py'
+__version__ = '2019.12.2.py'
 __docformat__ = 'restructuredtext en'
 
 import sys
@@ -128,9 +137,19 @@ except ImportError:
     lzf = None
 
 try:
+    import zfpy as zfp
+except ImportError:
+    zfp = None
+
+try:
     import blosc
 except ImportError:
     blosc = None
+
+try:
+    import bitshuffle
+except ImportError:
+    bitshuffle = None
 
 try:
     import PIL
@@ -146,7 +165,7 @@ def notimplemented(arg=False):
     >>> test()
     Traceback (most recent call last):
     ...
-    NotImplementedError: test
+    NotImplementedError: test not implemented
 
     >>> @notimplemented(True)
     ... def test(): pass
@@ -182,7 +201,9 @@ def version(astype=None):
         ('zstd', zstd.version() if zstd else 'n/a'),
         ('lz4', lz4.VERSION if lz4 else 'n/a'),
         ('lzf', 'unknown' if lzf else 'n/a'),
-        ('pil', PIL.PILLOW_VERSION if PIL else 'n/a'),
+        ('zfpy', zfp.__version__ if zfp else 'n/a'),
+        ('bitshuffle', bitshuffle.__version__ if bitshuffle else 'n/a'),
+        ('pillow', PIL.PILLOW_VERSION if PIL else 'n/a'),
     )
     if astype is str or astype is None:
         return ', '.join('%s-%s' % (k, v) for k, v in versions)
@@ -371,6 +392,7 @@ def bitorder_decode(data, out=None, _bitorder=[]):
     b'\\x80&'
     >>> data = numpy.array([1, 666], dtype='uint16')
     >>> bitorder_decode(data)
+    array([  128, 16473], dtype=uint16)
     >>> data
     array([  128, 16473], dtype=uint16)
 
@@ -618,6 +640,26 @@ def packints_decode(data, dtype, numbits, runlen=0, out=None):
     return result
 
 
+@notimplemented(bitshuffle)
+def bitshuffle_encode(data, level=1, itemsize=1, blocksize=0, out=None):
+    """Bitshuffle."""
+    if isinstance(data, numpy.ndarray):
+        return bitshuffle.bitshuffle(data, blocksize)
+    data = numpy.frombuffer(data, dtype='uint%i' % (itemsize * 8))
+    data = bitshuffle.bitshuffle(data, blocksize)
+    return data.tobytes()
+
+
+@notimplemented(bitshuffle)
+def bitshuffle_decode(data, itemsize=1, blocksize=0, out=None):
+    """Bitunshuffle."""
+    if isinstance(data, numpy.ndarray):
+        return bitshuffle.bitunshuffle(data, blocksize)
+    data = numpy.frombuffer(data, dtype='uint%i' % (itemsize * 8))
+    data = bitshuffle.bitunshuffle(data, blocksize)
+    return data.tobytes()
+
+
 def zlib_encode(data, level=6, out=None):
     """Compress Zlib DEFLATE."""
     return zlib.compress(data, level)
@@ -692,6 +734,42 @@ def lzf_encode(data, level=None, header=False, out=None):
 def lzf_decode(data, header=False, out=None):
     """Decompress LZF."""
     return lzf.decompress(data)
+
+
+@notimplemented(zfp)
+def zfp_encode(data, level=None, mode=None, execution=None, header=True,
+               out=None):
+    kwargs = {'write_header': header}
+    if mode in (None, zfp.mode_null, 'R', 'reversible'):  # zfp.mode_reversible
+        pass
+    elif mode in (zfp.mode_fixed_precision, 'p', 'precision'):
+        kwargs['precision'] = -1 if level is None else level
+    elif mode in (zfp.mode_fixed_rate, 'r', 'rate'):
+        kwargs['rate'] = -1 if level is None else level
+    elif mode in (zfp.mode_fixed_accuracy, 'a', 'accuracy'):
+        kwargs['tolerance'] = -1 if level is None else level
+    elif mode in (zfp.mode_expert, 'c', 'expert'):
+        minbits, maxbits, maxprec, minexp = level
+        raise NotImplementedError()
+    return zfp.compress_numpy(data, **kwargs)
+
+
+@notimplemented(zfp)
+def zfp_decode(data, shape=None, dtype=None, out=None):
+    """Decompress ZFP."""
+    return zfp.decompress_numpy(data)
+
+
+@notimplemented(bitshuffle)
+def bitshuffle_lz4_encode(data, level=1, blocksize=0, out=None):
+    """Compress LZ4 with Bitshuffle."""
+    return bitshuffle.compress_lz4(data, blocksize)
+
+
+@notimplemented(bitshuffle)
+def bitshuffle_lz4_decode(data, shape, dtype, blocksize=0, out=None):
+    """Decompress LZ4 with Bitshuffle."""
+    return bitshuffle.decompress_lz4(data, shape, dtype, blocksize)
 
 
 @notimplemented(lz4)
@@ -828,13 +906,13 @@ def png_encode(*args, **kwargs):
 
 
 @notimplemented
-def zfp_decode(*args, **kwargs):
-    """Decode ZFP."""
+def aec_decode(*args, **kwargs):
+    """Decode AEC."""
 
 
 @notimplemented
-def zfp_encode(*args, **kwargs):
-    """Encode ZFP."""
+def aec_encode(*args, **kwargs):
+    """Encode AEC."""
 
 
 if __name__ == '__main__':

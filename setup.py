@@ -23,8 +23,8 @@ description = re.search(r'"""(.*)\.(?:\r\n|\r|\n)', code).groups()[0]
 readme = re.search(r'(?:\r\n|\r|\n){2}"""(.*)"""(?:\r\n|\r|\n){2}__version__',
                    code, re.MULTILINE | re.DOTALL).groups()[0]
 
-readme = '\n'.join([description, '=' * len(description)]
-                   + readme.splitlines()[1:])
+readme = '\n'.join([description, '=' * len(description)] +
+                   readme.splitlines()[1:])
 
 license = re.search(r'(# Copyright.*?(?:\r\n|\r|\n))(?:\r\n|\r|\n)+""', code,
                     re.MULTILINE | re.DOTALL).groups()[0]
@@ -33,6 +33,7 @@ license = license.replace('# ', '').replace('#', '')
 
 if 'sdist' in sys.argv:
     with open('LICENSE', 'w') as fh:
+        fh.write('BSD 3-Clause License\n\n')
         fh.write(license)
     with open('README.rst', 'w') as fh:
         fh.write(readme)
@@ -64,7 +65,7 @@ ext_modules = [
     )
 ]
 
-setup_args = dict(
+setup(
     name='imagecodecs-lite',
     version=version,
     description=description,
@@ -73,8 +74,8 @@ setup_args = dict(
     author_email='cgohlke@uci.edu',
     url='https://www.lfd.uci.edu/~gohlke/',
     python_requires='>=2.7',
-    install_requires=['numpy>=1.11.3'],
-    setup_requires=['setuptools>=18.0', 'numpy>=1.11.3'],  # , 'cython>=0.29.0'
+    install_requires=['numpy>=1.14.6'],
+    setup_requires=['setuptools>=18.0', 'numpy>=1.14.6'],  # 'cython>=0.29.14'
     tests_require=['pytest'],
     packages=['imagecodecs_lite'],
     ext_modules=ext_modules,
@@ -96,7 +97,6 @@ setup_args = dict(
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
-        ],
-    )
-
-setup(**setup_args)
+        'Programming Language :: Python :: 3.8',
+    ],
+)

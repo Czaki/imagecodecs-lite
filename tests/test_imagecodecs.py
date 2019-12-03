@@ -40,16 +40,19 @@
 
 :License: 3-clause BSD
 
-:Version: 2019.4.20
+:Version: 2019.12.2
 
 """
 
 from __future__ import division, print_function
 
-import os
 import sys
-import glob
+import os
 import io
+import re
+import glob
+import tempfile
+import os.path as osp
 
 import pytest
 import numpy
@@ -65,21 +68,25 @@ try:
 except ImportError:
     czifile = None
 
-if 'imagecodecs_lite' in os.listdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
+
+if (
+    'imagecodecs_lite' in os.getcwd() or
+    osp.exists(osp.join(osp.dirname(__file__), '..', 'imagecodecs_lite'))
+):
     try:
         import imagecodecs_lite as imagecodecs
         from imagecodecs_lite import _imagecodecs_lite  # noqa
         from imagecodecs_lite import imagecodecs as imagecodecs_py
     except ImportError:
         pytest.exit('the imagecodec-lite package is not installed')
-    lzma = zlib = bz2 = zstd = lz4 = lzf = blosc = None
+    lzma = zlib = bz2 = zstd = lz4 = lzf = blosc = bitshuffle = None
     _jpeg12 = _jpegls = _zfp = None
 else:
     try:
         import imagecodecs
         import imagecodecs.imagecodecs as imagecodecs_py
         from imagecodecs.imagecodecs import (lzma, zlib, bz2, zstd, lz4, lzf,
-                                             blosc)
+                                             blosc, bitshuffle)
         from imagecodecs import _imagecodecs  # noqa
     except ImportError:
         pytest.exit('the imagecodec package is not installed')
@@ -99,11 +106,32 @@ else:
     except ImportError:
         _zfp = None
 
-    from skimage.util.dtype import convert
-
 
 IS_PY2 = sys.version_info[0] == 2
 IS_32BIT = sys.maxsize < 2**32
+TEST_DIR = osp.dirname(__file__)
+
+
+class TempFileName():
+    """Temporary file name context manager."""
+    def __init__(self, name=None, suffix='', remove=True):
+        self.remove = bool(remove)
+        if not name:
+            self.name = tempfile.NamedTemporaryFile(prefix='test_',
+                                                    suffix=suffix).name
+        else:
+            self.name = osp.join(tempfile.gettempdir(),
+                                 'test_%s%s' % (name, suffix))
+
+    def __enter__(self):
+        return self.name
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.remove:
+            try:
+                os.remove(self.name)
+            except Exception:
+                pass
 
 
 def test_version():
@@ -115,6 +143,44 @@ def test_version():
     assert ver in imagecodecs_py.__doc__
     if zlib:
         assert imagecodecs.version(dict)['zlib'].startswith('1.')
+
+
+@pytest.mark.skipif(not hasattr(imagecodecs, 'imread'),
+                    reason='imread function missing')
+@pytest.mark.filterwarnings('ignore:Possible precision loss')
+def test_imread_imwrite():
+    """Test imread and imwrite functions."""
+    imread = imagecodecs.imread
+    imwrite = imagecodecs.imwrite
+    data = image_data('rgba', 'uint8')
+
+    # codec from file extension
+    with TempFileName(suffix='.npy') as filename:
+        imwrite(filename, data, level=99)
+        im, codec = imread(filename, return_codec=True)
+        assert codec == imagecodecs.numpy_decode
+        assert_array_equal(data, im)
+
+    with TempFileName() as filename:
+        # codec from name
+        imwrite(filename, data, codec='numpy')
+        im = imread(filename, codec='npy')
+        assert_array_equal(data, im)
+        # codec from function
+        imwrite(filename, data, codec=imagecodecs.numpy_encode)
+        im = imread(filename, codec=imagecodecs.numpy_decode)
+        assert_array_equal(data, im)
+        # codec from name list
+        im = imread(filename, codec=['npz'])
+        assert_array_equal(data, im)
+        # autodetect
+        im = imread(filename)
+        assert_array_equal(data, im)
+        # fail
+        with pytest.raises(ValueError):
+            imwrite(filename, data)
+        with pytest.raises(ValueError):
+            im = imread(filename, codec='unknown')
 
 
 def test_none():
@@ -295,11 +361,11 @@ def test_delta(output, kind, codec, func):
     if kind[0] in 'iuB':
         low = numpy.iinfo(dtype).min
         high = numpy.iinfo(dtype).max
-        data = numpy.random.randint(low, high, size=33*31*3,
+        data = numpy.random.randint(low, high, size=33 * 31 * 3,
                                     dtype=dtype).reshape(33, 31, 3)
     else:
         low, high = -1e5, 1e5
-        data = numpy.random.randint(low, high, size=33*31*3,
+        data = numpy.random.randint(low, high, size=33 * 31 * 3,
                                     dtype='i4').reshape(33, 31, 3)
         data = data.astype(dtype)
 
@@ -312,7 +378,7 @@ def test_delta(output, kind, codec, func):
 
     if kind == 'B':
         # data = data.reshape(-1)
-        data = data.tostring()
+        data = data.tobytes()
         diff = encode_py(data, axis=0)
         if output == 'new':
             if codec == 'encode':
@@ -540,26 +606,36 @@ def test_lzw_decode_image_noeoi():
 @pytest.mark.skipif(not hasattr(imagecodecs, 'blosc_decode'),
                     reason='compression codecs missing')
 @pytest.mark.parametrize('output', ['new', 'out', 'size', 'excess', 'trunc'])
-@pytest.mark.parametrize('length', [0, 2, 31*33*3])
+@pytest.mark.parametrize('length', [0, 2, 31 * 33 * 3])
 @pytest.mark.parametrize('codec', ['encode', 'decode'])
 @pytest.mark.parametrize('module', [
     'zlib', 'bz2',
-    pytest.param('blosc', marks=pytest.mark.skipif(blosc is None,
-                                                   reason='import blosc')),
-    pytest.param('lzma', marks=pytest.mark.skipif(lzma is None,
-                                                  reason='import lzma')),
-    pytest.param('zstd', marks=pytest.mark.skipif(zstd is None,
-                                                  reason='import zstd')),
-    pytest.param('lzf', marks=pytest.mark.skipif(lzf is None,
-                                                 reason='import lzf')),
-    pytest.param('lz4', marks=pytest.mark.skipif(lz4 is None,
-                                                 reason='import lz4')),
-    pytest.param('lz4h', marks=pytest.mark.skipif(lz4 is None,
-                                                  reason='import lz4'))])
+    pytest.param('blosc',
+                 marks=pytest.mark.skipif(blosc is None,
+                                          reason='import blosc')),
+    pytest.param('lzma',
+                 marks=pytest.mark.skipif(lzma is None,
+                                          reason='import lzma')),
+    pytest.param('zstd',
+                 marks=pytest.mark.skipif(zstd is None,
+                                          reason='import zstd')),
+    pytest.param('lzf',
+                 marks=pytest.mark.skipif(lzf is None,
+                                          reason='import lzf')),
+    pytest.param('lz4',
+                 marks=pytest.mark.skipif(lz4 is None,
+                                          reason='import lz4')),
+    pytest.param('lz4h',
+                 marks=pytest.mark.skipif(lz4 is None,
+                                          reason='import lz4')),
+    pytest.param('bitshuffle',
+                 marks=pytest.mark.skipif(bitshuffle is None,
+                                          reason='import bitshuffle'))
+])
 def test_compressors(module, codec, output, length):
     """Test various non-image codecs."""
     if length:
-        data = numpy.random.randint(255, size=length, dtype='uint8').tostring()
+        data = numpy.random.randint(255, size=length, dtype='uint8').tobytes()
     else:
         data = b''
 
@@ -591,7 +667,7 @@ def test_compressors(module, codec, output, length):
         encode = imagecodecs.lzf_encode
         decode = imagecodecs.lzf_decode
         level = 1
-        encoded = lzf.compress(data)
+        encoded = lzf.compress(data, ((len(data) * 33) >> 5) + 1)
         if encoded is None:
             pytest.skip("lzf can't compress empty input")
     elif module == 'lz4':
@@ -613,6 +689,12 @@ def test_compressors(module, codec, output, length):
         decode = imagecodecs.bz2_decode
         level = 9
         encoded = bz2.compress(data, compresslevel=level)
+    elif module == 'bitshuffle':
+        encode = imagecodecs.bitshuffle_encode
+        decode = imagecodecs.bitshuffle_decode
+        level = 0
+        encoded = bitshuffle.bitshuffle(
+            numpy.frombuffer(data, 'uint8')).tobytes()
     else:
         raise ValueError(module)
 
@@ -647,8 +729,11 @@ def test_compressors(module, codec, output, length):
         elif output == 'trunc':
             size = max(0, size - 1)
             out = bytearray(size)
-            with pytest.raises(RuntimeError):
-                encode(data, level, out=out)
+            if size == 0 and module == 'bitshuffle':
+                encode(data, level, out=out) == b''
+            else:
+                with pytest.raises(RuntimeError):
+                    encode(data, level, out=out)
         else:
             raise ValueError(output)
     elif codec == 'decode':
@@ -672,7 +757,7 @@ def test_compressors(module, codec, output, length):
             size = max(0, size - 1)
             out = bytearray(size)
             if length > 0 and module in ('zlib', 'zstd', 'lzf', 'lz4', 'lz4h',
-                                         'blosc'):
+                                         'blosc', 'bitshuffle'):
                 with pytest.raises(RuntimeError):
                     decode(encoded, out=out)
             else:
@@ -682,6 +767,28 @@ def test_compressors(module, codec, output, length):
             raise ValueError(output)
     else:
         raise ValueError(codec)
+
+
+@pytest.mark.skipif(not hasattr(imagecodecs, 'bitshuffle_decode'),
+                    reason='bitshuffle codec missing')
+@pytest.mark.parametrize('dtype', ['bytes', 'ndarray'])
+@pytest.mark.parametrize('itemsize', [1, 2, 4, 8])
+@pytest.mark.parametrize('blocksize', [0, 8, 64])
+def test_bitshuffle_roundtrip(dtype, itemsize, blocksize):
+    """Test Bitshuffle codec."""
+    encode = imagecodecs.bitshuffle_encode
+    decode = imagecodecs.bitshuffle_decode
+    if dtype == 'bytes':
+        data = numpy.random.randint(255, size=1024, dtype='uint8').tobytes()
+    else:
+        data = numpy.random.randint(255, size=1024, dtype='u%i' % itemsize)
+        data.shape = 2, 4, 128
+    encoded = encode(data, itemsize=itemsize, blocksize=blocksize)
+    decoded = decode(encoded, itemsize=itemsize, blocksize=blocksize)
+    if dtype == 'bytes':
+        assert data == decoded
+    else:
+        assert_array_equal(data, decoded)
 
 
 @pytest.mark.skipif(not hasattr(imagecodecs, 'blosc_decode'),
@@ -695,11 +802,165 @@ def test_blosc_roundtrip(compressor, shuffle, level, numthreads):
     """Test Blosc codec."""
     encode = imagecodecs.blosc_encode
     decode = imagecodecs.blosc_decode
-    data = numpy.random.randint(255, size=2021, dtype='uint8').tostring()
+    data = numpy.random.randint(255, size=2021, dtype='uint8').tobytes()
     encoded = encode(data, level=level, compressor=compressor,
                      shuffle=shuffle, numthreads=numthreads)
     decoded = decode(encoded, numthreads=numthreads)
     assert data == decoded
+
+
+AEC_TEST_DIR = osp.join(TEST_DIR, 'libaec/121B2TestData')
+
+AEC_TEST_OPTIONS = list(
+    osp.split(f)[-1][5:-3] for f in glob.glob(osp.join(
+        AEC_TEST_DIR, 'AllOptions', '*.rz')))
+
+AEC_TEST_EXTENDED = list(
+    osp.split(f)[-1][:-3] for f in glob.glob(osp.join(
+        AEC_TEST_DIR, 'ExtendedParameters', '*.rz')))
+
+
+@pytest.mark.skipif(not hasattr(imagecodecs, 'aec_decode'),
+                    reason='aec codec missing')
+@pytest.mark.parametrize('dtype', ['bytes', 'numpy'])
+@pytest.mark.parametrize('name', AEC_TEST_EXTENDED)
+def test_aec_extended(name, dtype):
+    """Test AEC codec with libaec ExtendedParameters."""
+    encode = imagecodecs.aec_encode
+    decode = imagecodecs.aec_decode
+
+    size = 512 * 512 * 4
+    bitspersample = 32
+    flags = imagecodecs.AEC_DATA_PREPROCESS | imagecodecs.AEC_PAD_RSI
+
+    matches = re.search(r'j(\d+)\.r(\d+)', name).groups()
+    blocksize = int(matches[0])
+    rsi = int(matches[1])
+
+    filename = osp.join(AEC_TEST_DIR, 'ExtendedParameters', '%s.rz' % name)
+    with open(filename, 'rb') as fh:
+        rz = fh.read()
+
+    filename = osp.join(AEC_TEST_DIR, 'ExtendedParameters',
+                        '%s.dat' % name.split('.')[0])
+    if dtype == 'bytes':
+        with open(filename, 'rb') as fh:
+            dat = fh.read()
+        out = size
+    else:
+        dat = numpy.fromfile(filename, 'uint32').reshape(512, 512)
+        out = numpy.empty_like(dat)
+
+    # decode
+    decoded = decode(rz, bitspersample=bitspersample, flags=flags,
+                     blocksize=blocksize, rsi=rsi, out=out)
+    if dtype == 'bytes':
+        assert decoded == dat
+    else:
+        pass
+
+    # roundtrip
+    if dtype == 'bytes':
+        encoded = encode(dat, bitspersample=bitspersample, flags=flags,
+                         blocksize=blocksize, rsi=rsi)
+        # fails with AEC_DATA_ERROR if libaec wasn't built with libaec.diff
+        decoded = decode(encoded, bitspersample=bitspersample, flags=flags,
+                         blocksize=blocksize, rsi=rsi, out=size)
+        assert decoded == dat
+    else:
+        encoded = encode(dat, flags=flags, blocksize=blocksize, rsi=rsi)
+        # fails with AEC_DATA_ERROR if libaec wasn't built with libaec.diff
+        decoded = decode(encoded, flags=flags, blocksize=blocksize, rsi=rsi,
+                         out=out)
+        assert_array_equal(decoded, out)
+
+
+@pytest.mark.skipif(not hasattr(imagecodecs, 'aec_decode'),
+                    reason='aec codec missing')
+@pytest.mark.parametrize('name', AEC_TEST_OPTIONS)
+def test_aec_options(name):
+    """Test AEC codec with libaec 121B2TestData."""
+    encode = imagecodecs.aec_encode
+    decode = imagecodecs.aec_decode
+
+    rsi = 128
+    blocksize = 16
+    flags = imagecodecs.AEC_DATA_PREPROCESS
+    if 'restricted' in name:
+        flags |= imagecodecs.AEC_RESTRICTED
+    matches = re.search(r'p(\d+)n(\d+)', name).groups()
+    size = int(matches[0])
+    bitspersample = int(matches[1])
+
+    if bitspersample > 8:
+        size *= 2
+    if bitspersample > 16:
+        size *= 2
+
+    filename = osp.join(AEC_TEST_DIR, 'AllOptions', 'test_%s.rz' % name)
+    with open(filename, 'rb') as fh:
+        rz = fh.read()
+
+    filename = filename.replace('.rz', '.dat'
+                                ).replace('-basic', ''
+                                          ).replace('-restricted', '')
+    with open(filename, 'rb') as fh:
+        dat = fh.read()
+    out = size
+
+    # decode
+    decoded = decode(rz, bitspersample=bitspersample, flags=flags,
+                     blocksize=blocksize, rsi=rsi, out=out)
+    assert decoded == dat
+
+    # roundtrip
+    encoded = encode(dat, bitspersample=bitspersample, flags=flags,
+                     blocksize=blocksize, rsi=rsi)
+    decoded = decode(encoded, bitspersample=bitspersample, flags=flags,
+                     blocksize=blocksize, rsi=rsi, out=out)
+    assert decoded == dat
+
+
+@pytest.mark.skipif(not hasattr(imagecodecs, 'jpeg_encode'),
+                    reason='jpeg codecs missing')
+@pytest.mark.filterwarnings('ignore:Possible precision loss')
+@pytest.mark.parametrize('optimize', [False, True])
+@pytest.mark.parametrize('smoothing', [0, 25])
+@pytest.mark.parametrize('subsampling', ['444', '422', '420', '411', '440'])
+@pytest.mark.parametrize('itype', ['rgb', 'rgba', 'gray'])
+@pytest.mark.parametrize('codec', ['jpeg8', 'jpeg12'])
+def test_jpeg_encode(codec, itype, subsampling, smoothing, optimize):
+    """Test various JPEG encode options."""
+    # general and default options are tested in test_image_roundtrips
+    if codec == 'jpeg8':
+        dtype = 'uint8'
+        decode = imagecodecs.jpeg8_decode
+        encode = imagecodecs.jpeg8_encode
+        atol = 24
+    elif codec == 'jpeg12':
+        if _jpeg12 is None:
+            pytest.skip('_jpeg12 module missing')
+        if not optimize:
+            pytest.skip('jpeg12 fails without optimize')
+        dtype = 'uint16'
+        decode = imagecodecs.jpeg12_decode
+        encode = imagecodecs.jpeg12_encode
+        atol = 24 * 16
+    else:
+        raise ValueError(codec)
+
+    dtype = numpy.dtype(dtype)
+    data = image_data(itype, dtype)
+    data = data[:32, :16].copy()  # make divisable by subsamples
+
+    encoded = encode(data, level=95, subsampling=subsampling,
+                     smoothing=smoothing, optimize=optimize)
+    decoded = decode(encoded)
+
+    if itype == 'gray':
+        decoded = decoded.reshape(data.shape)
+
+    assert_allclose(data, decoded, atol=atol)
 
 
 @pytest.mark.skipif(not hasattr(imagecodecs, 'jpeg8_decode'),
@@ -812,7 +1073,7 @@ def test_j2k_int8_4bit(output):
         decoded = numpy.empty(shape, dtype)
         decode(data, out=decoded)
     elif output == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1])
+        decoded = bytearray(shape[0] * shape[1])
         decoded = decode(data, out=decoded)
 
     assert decoded.dtype == dtype
@@ -849,7 +1110,7 @@ def test_jpegls_decode(output):
         decoded = numpy.empty(shape, dtype)
         decode(data, out=decoded)
     elif output == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1]*shape[2])
+        decoded = bytearray(shape[0] * shape[1] * shape[2])
         decoded = decode(data, out=decoded)
 
     assert decoded.dtype == dtype
@@ -874,7 +1135,7 @@ def test_webp_decode(output):
         decoded = numpy.empty(shape, dtype)
         decode(data, out=decoded)
     elif output == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1]*shape[2])
+        decoded = bytearray(shape[0] * shape[1] * shape[2])
         decoded = decode(data, out=decoded)
 
     assert decoded.dtype == dtype
@@ -893,6 +1154,8 @@ def test_webp_decode(output):
 @pytest.mark.parametrize('dtype', ['float32', 'float64', 'int32', 'int64'])
 def test_zfp(dtype, itype, enout, deout, mode, execution):
     """Test ZFP codecs."""
+    if execution == 'omp' and os.environ.get('SKIP_OMP', False):
+        pytest.skip('omp test skip because of enviroment variable')
     decode = imagecodecs.zfp_decode
     encode = imagecodecs.zfp_encode
     mode, level = mode
@@ -919,11 +1182,11 @@ def test_zfp(dtype, itype, enout, deout, mode, execution):
         decoded = numpy.empty(shape, dtype)
         decode(encoded, out=decoded)
     elif deout == 'view':
-        temp = numpy.empty((shape[0]+5, shape[1]+5, shape[2]), dtype)
-        decoded = temp[2:2+shape[0], 3:3+shape[1], :]
+        temp = numpy.empty((shape[0] + 5, shape[1] + 5, shape[2]), dtype)
+        decoded = temp[2:2 + shape[0], 3:3 + shape[1], :]
         decode(encoded, out=decoded)
     elif deout == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1]*shape[2]*itemsize)
+        decoded = bytearray(shape[0] * shape[1] * shape[2] * itemsize)
         decoded = decode(encoded, out=decoded)
         decoded = numpy.asarray(decoded, dtype=dtype).reshape(shape)
 
@@ -931,7 +1194,7 @@ def test_zfp(dtype, itype, enout, deout, mode, execution):
         atol = 1e-6
     else:
         atol = 20
-    assert_allclose(data, (decoded), atol=atol, rtol=0)
+    assert_allclose(data, decoded, atol=atol, rtol=0)
 
 
 @pytest.mark.skipif(not hasattr(imagecodecs, 'jxr_decode'),
@@ -979,11 +1242,11 @@ def test_jxr(itype, enout, deout, level):
         decoded = numpy.empty(shape, dtype)
         decode(encoded, out=numpy.squeeze(decoded))
     elif deout == 'view':
-        temp = numpy.empty((shape[0]+5, shape[1]+5, shape[2]), dtype)
-        decoded = temp[2:2+shape[0], 3:3+shape[1], :]
+        temp = numpy.empty((shape[0] + 5, shape[1] + 5, shape[2]), dtype)
+        decoded = temp[2:2 + shape[0], 3:3 + shape[1], :]
         decode(encoded, out=numpy.squeeze(decoded))
     elif deout == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1]*shape[2]*itemsize)
+        decoded = bytearray(shape[0] * shape[1] * shape[2] * itemsize)
         decoded = decode(encoded, out=decoded)
         decoded = numpy.asarray(decoded, dtype=dtype).reshape(shape)
 
@@ -996,7 +1259,7 @@ def test_jxr(itype, enout, deout, level):
         atol = 0.005 if dtype.kind == 'f' else 8 if dtype == 'uint8' else 12
     else:
         atol = 0.1 if dtype.kind == 'f' else 64 if dtype == 'uint8' else 700
-    assert_allclose(data, (decoded), atol=atol, rtol=0)
+    assert_allclose(data, decoded, atol=atol, rtol=0)
 
 
 @pytest.mark.skipif(not hasattr(imagecodecs, 'jpeg_decode'),
@@ -1062,10 +1325,11 @@ def test_image_roundtrips(codec, dtype, itype, enout, deout, level):
     if enout == 'new':
         encoded = encode(data, level=level)
     elif enout == 'out':
-        encoded = numpy.empty(2*shape[0]*shape[1]*shape[2]*itemsize, 'uint8')
+        encoded = numpy.empty(2 * shape[0] * shape[1] * shape[2] * itemsize,
+                              'uint8')
         encode(data, level=level, out=encoded)
     elif enout == 'bytearray':
-        encoded = bytearray(2*shape[0]*shape[1]*shape[2]*itemsize)
+        encoded = bytearray(2 * shape[0] * shape[1] * shape[2] * itemsize)
         encode(data, level=level, out=encoded)
 
     if deout == 'new':
@@ -1074,11 +1338,11 @@ def test_image_roundtrips(codec, dtype, itype, enout, deout, level):
         decoded = numpy.empty(shape, dtype)
         decode(encoded, out=numpy.squeeze(decoded))
     elif deout == 'view':
-        temp = numpy.empty((shape[0]+5, shape[1]+5, shape[2]), dtype)
-        decoded = temp[2:2+shape[0], 3:3+shape[1], :]
+        temp = numpy.empty((shape[0] + 5, shape[1] + 5, shape[2]), dtype)
+        decoded = temp[2:2 + shape[0], 3:3 + shape[1], :]
         decode(encoded, out=numpy.squeeze(decoded))
     elif deout == 'bytearray':
-        decoded = bytearray(shape[0]*shape[1]*shape[2]*itemsize)
+        decoded = bytearray(shape[0] * shape[1] * shape[2] * itemsize)
         decoded = decode(encoded, out=decoded)
         decoded = numpy.asarray(decoded, dtype=dtype).reshape(shape)
 
@@ -1124,7 +1388,7 @@ def test_czifile():
     from czifile import CziFile
 
     fname = datafiles('jpegxr.czi')
-    if not os.path.exists(fname):
+    if not osp.exists(fname):
         pytest.skip('large file not included with source distribution')
 
     with CziFile(fname) as czi:
@@ -1150,7 +1414,7 @@ def test_jpeg8_large():
     except IOError:
         pytest.skip('large file not included with source distribution')
 
-    # this fails if libjpeg-turbo wasn't compiled with libjpeg-turbo.diff:
+    # fails if libjpeg-turbo wasn't compiled with libjpeg-turbo.diff
     # Jpeg8Error: Empty JPEG image (DNL not supported)
     decoded = decode(data, shape=(33792, 79872))
     assert decoded.shape == (33792, 79872, 3)
@@ -1161,8 +1425,8 @@ def test_jpeg8_large():
 def datafiles(pathname, base=None):
     """Return path to data file(s)."""
     if base is None:
-        base = os.path.dirname(__file__)
-    path = os.path.join(base, *pathname.split('/'))
+        base = osp.dirname(__file__)
+    path = osp.join(base, *pathname.split('/'))
     if any(i in path for i in '*?'):
         return glob.glob(path)
     return path
@@ -1201,22 +1465,37 @@ def image_data(itype, dtype):
     else:
         raise ValueError('itype not found')
 
-    # TODO: replace skimage convert with dtype codec
-    data = convert(data.copy(), dtype)
+    data = data.copy()
+
+    dtype = numpy.dtype(dtype)
+    if dtype.kind in 'iu':
+        iinfo = numpy.iinfo(dtype)
+        if dtype.kind == 'u':
+            data *= iinfo.max + 1
+        else:
+            data *= (iinfo.max - iinfo.max) / 2
+            data -= 1.0 / 2.0
+        data = numpy.rint(data)
+        data = numpy.clip(data, iinfo.min, iinfo.max)
+    elif dtype.kind != 'f':
+        raise NotImplementedError('dtype not supported')
+
+    data = data.astype(dtype)
+
     if dtype == 'uint16':
         # 12-bit
         data //= 16
 
     if itype == 'view':
         shape = data.shape
-        temp = numpy.empty((shape[0]+5, shape[1]+5, shape[2]), dtype)
-        temp[2:2+shape[0], 3:3+shape[1], :] = data
-        data = temp[2:2+shape[0], 3:3+shape[1], :]
+        temp = numpy.empty((shape[0] + 5, shape[1] + 5, shape[2]), dtype)
+        temp[2:2 + shape[0], 3:3 + shape[1], :] = data
+        data = temp[2:2 + shape[0], 3:3 + shape[1], :]
 
     return data
 
 
-DATA = numpy.load(datafiles('testdata.npy'))
+DATA = numpy.load(datafiles('testdata.npy'))  # (32, 31, 9) float64
 BYTES = readfile('bytes.bin')
 BYTESIMG = numpy.frombuffer(BYTES, 'uint8').reshape(16, 16)
 WORDS = readfile('words.bin')
