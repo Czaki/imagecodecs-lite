@@ -46,7 +46,7 @@ The module is intended for testing and reference, not production code.
 
 :License: BSD 3-Clause
 
-:Version: 2019.12.2
+:Version: 2019.12.3
 
 Revisions
 ---------
@@ -95,7 +95,7 @@ Revisions
 
 from __future__ import division, print_function
 
-__version__ = '2019.12.2.py'
+__version__ = '2019.12.3.py'
 __docformat__ = 'restructuredtext en'
 
 import sys

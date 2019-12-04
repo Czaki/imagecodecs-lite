@@ -61,7 +61,7 @@ C libraries and is therefore simple to build from source code.
 
 :License: BSD 3-Clause
 
-:Version: 2019.12.2
+:Version: 2019.12.3
 
 Requirements
 ------------
@@ -84,7 +84,7 @@ Build instructions for manylinux and macOS courtesy of Grzegorz Bokota.
 
 Revisions
 ---------
-2019.12.2
+2019.12.3
     Release manylinux and macOS wheels.
 2019.4.20
     Fix setup requirements.
@@ -93,7 +93,7 @@ Revisions
 
 """
 
-__version__ = '2019.12.2'
+__version__ = '2019.12.3'
 
 
 import io

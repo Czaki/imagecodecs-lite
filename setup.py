@@ -74,8 +74,8 @@ setup(
     author_email='cgohlke@uci.edu',
     url='https://www.lfd.uci.edu/~gohlke/',
     python_requires='>=2.7',
-    install_requires=['numpy>=1.14.6'],
-    setup_requires=['setuptools>=18.0', 'numpy>=1.14.6'],  # 'cython>=0.29.14'
+    install_requires=['numpy>=1.14.5'],
+    setup_requires=['setuptools>=18.0', 'numpy>=1.14.5'],  # 'cython>=0.29.14'
     tests_require=['pytest'],
     packages=['imagecodecs_lite'],
     ext_modules=ext_modules,
@@ -98,5 +98,6 @@ setup(
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: Implementation :: CPython',
     ],
 )
